@@ -395,7 +395,7 @@ test('desktop streaming lifecycle never advertises remote streaming support or w
     const features=read('src/System/XGameRuntimeFeature.cpp');
     assert.doesNotMatch(features,/case XGameRuntimeFeature::XGameStreaming:/);
     assert.match(read('tests/Nexus/test_optional_providers.cpp'),/ConcurrentInitializationAndTeardownNeverInventClients/);
-    assert.match(read('scripts/test-component.mjs'),/Number\(match\[1\]\) < 76/);
+    assert.match(read('scripts/test-component.mjs'),/Number\(match\[1\]\) < 77/);
 });
 
 test('WinRT-dependent privilege validation has a separate matching-engine gate',()=>{
