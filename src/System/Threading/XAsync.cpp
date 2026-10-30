@@ -292,18 +292,32 @@ public:
             m_internal = reinterpret_cast<AsyncBlockInternal*>(asyncBlock->internal);
         }
 
+        m_userInternal = m_internal;
         if (m_internal->signature == ASYNC_BLOCK_SIG && m_internal->state != nullptr)
         {
-            m_userInternal = reinterpret_cast<AsyncBlockInternal*>(m_internal->state->userAsyncBlock->internal);
-        }
-        else
-        {
-            m_userInternal = m_internal;
+            // A title may zero its block, or start a new call on it, while
+            // this call is still pending. Native XAsync then writes this
+            // call's state into a block it no longer owns, completing or
+            // orphaning the newer call. Only mirror status into the caller's
+            // block while it still points at this call. A block the title has
+            // freed is still read here, as before: that stays unsupported.
+            auto* user = reinterpret_cast<AsyncBlockInternal*>(m_internal->state->userAsyncBlock->internal);
+            if (user->signature == ASYNC_BLOCK_SIG && user->state == m_internal->state)
+            {
+                m_userInternal = user;
+            }
         }
 
         if (m_userInternal != m_internal)
         {
             SpinLock::Lock(m_userInternal->lock);
+            // The title, or a newer call, may have reused the block between
+            // the check above and the lock; check again under the lock.
+            if (m_userInternal->signature != ASYNC_BLOCK_SIG || m_userInternal->state != m_internal->state)
+            {
+                m_userInternal->lock.clear();
+                m_userInternal = m_internal;
+            }
         }
     }
 
@@ -653,16 +667,18 @@ static void CALLBACK WorkerCallback(
 
     if (canceled)
     {
-        XAsyncCancel(state->userAsyncBlock);
+        // Address the call through its own provider block: the caller's
+        // block may already belong to a newer call.
+        XAsyncCancel(&state->providerAsyncBlock);
         HRESULT callStatus;
         {
-            AsyncBlockInternalGuard internal{ state->userAsyncBlock };
+            AsyncBlockInternalGuard internal{ &state->providerAsyncBlock };
             callStatus = internal.GetStatus();
         }
 
         if (callStatus != E_ABORT)
         {
-            XAsyncComplete(state->userAsyncBlock, E_ABORT, 0);
+            XAsyncComplete(&state->providerAsyncBlock, E_ABORT, 0);
         }
     }
     else
