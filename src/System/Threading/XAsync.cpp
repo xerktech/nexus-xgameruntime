@@ -292,13 +292,20 @@ public:
             m_internal = reinterpret_cast<AsyncBlockInternal*>(asyncBlock->internal);
         }
 
+        m_userInternal = m_internal;
         if (m_internal->signature == ASYNC_BLOCK_SIG && m_internal->state != nullptr)
         {
-            m_userInternal = reinterpret_cast<AsyncBlockInternal*>(m_internal->state->userAsyncBlock->internal);
-        }
-        else
-        {
-            m_userInternal = m_internal;
+            // A title may zero, free or reuse its block while the call is
+            // still pending. Release builds of native XAsync then write into
+            // memory the call no longer owns, corrupting any newer call; only
+            // mirror status into the caller's block while it still points at
+            // this call. The checked fields change only under the provider
+            // lock held here, or by the title itself.
+            auto* user = reinterpret_cast<AsyncBlockInternal*>(m_internal->state->userAsyncBlock->internal);
+            if (user->signature == ASYNC_BLOCK_SIG && user->state == m_internal->state)
+            {
+                m_userInternal = user;
+            }
         }
 
         if (m_userInternal != m_internal)
@@ -653,16 +660,18 @@ static void CALLBACK WorkerCallback(
 
     if (canceled)
     {
-        XAsyncCancel(state->userAsyncBlock);
+        // Address the call through its own provider block: the caller's
+        // block may already belong to a newer call.
+        XAsyncCancel(&state->providerAsyncBlock);
         HRESULT callStatus;
         {
-            AsyncBlockInternalGuard internal{ state->userAsyncBlock };
+            AsyncBlockInternalGuard internal{ &state->providerAsyncBlock };
             callStatus = internal.GetStatus();
         }
 
         if (callStatus != E_ABORT)
         {
-            XAsyncComplete(state->userAsyncBlock, E_ABORT, 0);
+            XAsyncComplete(&state->providerAsyncBlock, E_ABORT, 0);
         }
     }
     else

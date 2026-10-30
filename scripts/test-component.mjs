@@ -58,7 +58,7 @@ try {
 
     const units = execute('unit', 'wine', [path.join(bin, 'test_xgameruntime.exe')], 120000);
     const match = units.match(/\[\s*PASSED\s*\]\s+(\d+) tests/);
-    if (!match || Number(match[1]) < 76 || /\[\s*(SKIPPED|FAILED)\s*\]/.test(units))
+    if (!match || Number(match[1]) < 77 || /\[\s*(SKIPPED|FAILED)\s*\]/.test(units))
         throw Error('Missing, skipped or failed C++ unit coverage');
     proof.results.push({name: 'cpp-unit', checks: Number(match[1]), failures: 0});
     const identities=execute('async-identity-unit','wine',[path.join(bin,'test_nexus_async_identity.exe')]);

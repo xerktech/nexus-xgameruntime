@@ -117,3 +117,57 @@ TEST( NexusAsyncResults, ConcurrentResultReadersCannotConsumeTheSamePayloadTwice
     EXPECT_EQ( payload.cleanups, 1u );
     EXPECT_EQ( values[0] + values[1], 0x1234u );
 }
+namespace
+{
+struct Deferred
+{
+    IXThreadingImpl *api;
+    XAsyncBlock *async = nullptr;
+    std::atomic<unsigned> cleanups{ 0 };
+};
+HRESULT WINAPI DeferredProvider( XAsyncOp op, const XAsyncProviderData *data )
+{
+    auto deferred = static_cast<Deferred *>( data->context );
+    switch ( op )
+    {
+    case XAsyncOp::Begin:
+        deferred->async = data->async;
+        return S_OK;
+    case XAsyncOp::GetResult:
+        memset( data->buffer, 0x5A, data->bufferSize );
+        return S_OK;
+    case XAsyncOp::Cleanup:
+        ++deferred->cleanups;
+        return S_OK;
+    default:
+        return S_OK;
+    }
+}
+}
+TEST( NexusAsyncResults, LateCompletionLeavesAReusedBlockToItsNewCall )
+{
+    // A title zeroes its block and starts a new call on it while the first
+    // call is still pending. The first call must not complete the second.
+    Fixture fixture;
+    ASSERT_EQ( fixture.Initialize(), S_OK );
+    Deferred first{ fixture.api }, second{ fixture.api };
+    XAsyncBlock async{};
+    async.queue = fixture.queue;
+    ASSERT_EQ( fixture.api->XAsyncBegin( &async, &first, &payloadIdentity, "First", DeferredProvider ), S_OK );
+    ASSERT_NE( first.async, nullptr );
+    async = XAsyncBlock{};
+    async.queue = fixture.queue;
+    ASSERT_EQ( fixture.api->XAsyncBegin( &async, &second, &payloadIdentity, "Second", DeferredProvider ), S_OK );
+    ASSERT_NE( second.async, nullptr );
+
+    fixture.api->XAsyncComplete( first.async, S_OK, 0 );
+    EXPECT_EQ( first.cleanups, 1u );
+    EXPECT_EQ( fixture.api->XAsyncGetStatus( &async, FALSE ), E_PENDING );
+
+    fixture.api->XAsyncComplete( second.async, S_OK, sizeof( DWORD ) );
+    ASSERT_EQ( fixture.api->XAsyncGetStatus( &async, TRUE ), S_OK );
+    DWORD value = 0;
+    ASSERT_EQ( fixture.api->XAsyncGetResult( &async, &payloadIdentity, sizeof( value ), &value, nullptr ), S_OK );
+    EXPECT_EQ( value, 0x5A5A5A5Au );
+    EXPECT_EQ( second.cleanups, 1u );
+}
