@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Synthetic privilege and logger tests need the matching Wine WinRT engine.
+// Synthetic privilege, logger and Windows.Data.Json tests need the matching Wine WinRT engine.
 // Public services, accounts, game saves and production trust are never used.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 if(process.argv.length!==4)throw Error('Usage: test-user-contracts.mjs BUILD_DIRECTORY PINNED_WINE_EXECUTABLE');
 const build=fs.realpathSync(process.argv[2]),engine=fs.realpathSync(process.argv[3]);
 const base=path.dirname(path.dirname(engine)),bin=path.join(build,'bin');
-const names=['xgameruntime.dll','nexus_user-privilege.exe','nexus_auth-metadata.exe','nexus_game-invitations.exe'];
+const names=['xgameruntime.dll','nexus_user-privilege.exe','nexus_auth-metadata.exe','nexus_game-invitations.exe','nexus_legacy-service-client.exe','nexus_auth-rejection-metadata.exe','nexus_store-license-map.exe'];
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const snapshot=()=>Object.fromEntries(names.map(x=>[x,hash(path.join(bin,x))]));
 const before=snapshot(),root=fs.mkdtempSync(path.join(build,'nexus-user-contract-test-'));fs.chmodSync(root,0o700);
@@ -34,7 +34,7 @@ try{
  const staged=path.join(system,'xgameruntime.dll'),temporary=staged+'.nexus-'+process.pid;
  fs.copyFileSync(path.join(bin,'xgameruntime.dll'),temporary,fs.constants.COPYFILE_EXCL);fs.renameSync(temporary,staged);
  if(fs.lstatSync(staged).isSymbolicLink()||hash(staged)!==before['xgameruntime.dll'])throw Error('Exact DLL staging failed');
- for(const [name,minimum]of [['user-privilege',1162],['auth-metadata',200],['game-invitations',86]]){
+ for(const [name,minimum]of [['user-privilege',1162],['auth-metadata',200],['game-invitations',86],['legacy-service-client',70],['auth-rejection-metadata',28],['store-license-map',90]]){
   const output=run(name,engine,[path.join(bin,'nexus_'+name+'.exe')]);
   const summary=output.match(/(?:^|\n)CHECKS (\d+) FAILURES (\d+)/);
   if(!summary||Number(summary[1])<minimum||Number(summary[2])||/(?:^|\n)FAIL /.test(output))throw Error(name+' lost required coverage');

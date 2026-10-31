@@ -405,6 +405,11 @@ test('WinRT-dependent privilege validation has a separate matching-engine gate',
     assert.match(read('scripts/test-user-contracts.mjs'),/user-privilege',1162/);
     assert.match(read('scripts/test-user-contracts.mjs'),/auth-metadata',200/);
     assert.doesNotMatch(read('scripts/test-component.mjs'),/\['nexus_user-privilege',/);
+    // Windows.Data.Json is not registered in stock Wine, so these parse through it only on the matching engine.
+    for(const [name,minimum] of [['legacy-service-client',70],['auth-rejection-metadata',28],['store-license-map',90]]){
+        assert.ok(read('scripts/test-user-contracts.mjs').includes(`['${name}',${minimum}]`),name);
+        assert.ok(!read('scripts/test-component.mjs').includes(`['nexus_${name}',`),name);
+    }
     assert.match(read('src/System/Threading/XAsync.cpp'),/std::atomic<DWORD> signature/);
 });
 test('64-bit atomics use Atomic64 so i386 accesses stay locked under FEX without vector TSO',()=>{
